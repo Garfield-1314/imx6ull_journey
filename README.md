@@ -33,13 +33,20 @@ export CROSS_COMPILE=arm-linux-gnueabihf-
 ### 3.2 初始化配置
 进入内核目录并应用 i.MX6 系列的默认配置文件：
 ```bash
-make mrproper
 cd linux-fslc
+make mrproper      # 清理之前的残留配置
 make imx_v7_defconfig
 ```
 *注意：如果是第一次在新环境编译，建议运行 `make olddefconfig` 以自动处理新版本内核的默认配置。*
 
-### 3.3 菜单配置 (可选)
+### 3.3 切换内核版本
+由于 `linux-fslc` 是作为一个 Git 仓库存在的，你可以随时切换到不同的分支或标签：
+```bash
+cd linux-fslc
+git checkout 6.18-1.0.x-imx          # 切换到指定版本
+```
+
+### 3.4 菜单配置 (可选)
 如果需要自定义内核功能或驱动：
 ```bash
 make menuconfig
