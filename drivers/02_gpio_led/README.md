@@ -5,7 +5,7 @@
 ## 操作流程
 
 ### 1. 修改设备树 (.dts)
-你需要告诉内核哪个引脚是你的 LED。在 [linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull.dtsi](linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull.dtsi) 或具体的板子文件（如 `imx6ull-14x14-evk.dts`）的根节点 `/` 下添加：
+在 [linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull.dtsi](linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull.dtsi) 或具体的板子文件（如 `imx6ull-14x14-evk.dts`）的根节点 `/` 下添加：
 
 ```dts
 / {
