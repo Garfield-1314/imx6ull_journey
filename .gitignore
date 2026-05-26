@@ -1,0 +1,39 @@
+# gitignore for imx6ull_journey project root
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Compilation artifacts (though handled inside linux-fslc usually)
+*.o
+*.ko
+*.so
+*.a
+*.bin
+*.elf
+*.dtb
+*.dtbo
+
+# Linux Kernel specific extra (if people build in root)
+.config
+.config.old
+vmlinux
+System.map
+Module.symvers
+modules.order
+
+# Python (if any)
+__pycache__/
+*.pyc
+
+# Local scripts/output
+/output/
+/build/
+/tmp/
