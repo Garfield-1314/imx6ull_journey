@@ -1,0 +1,3 @@
+[submodule "linux-fslc"]
+	path = linux-fslc
+	url = https://github.com/Freescale/linux-fslc.git
