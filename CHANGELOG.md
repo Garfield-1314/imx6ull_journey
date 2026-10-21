@@ -2,6 +2,16 @@
 
 所有对本项目的显著更改都将记录在此文件中。
 
+## 2026-10-21
+
+### 已变更
+- 全量补全根目录 [README.md](README.md)，合并 `main` 分支与 `feature/driver-development` 分支两版内容，修复章节编号重复问题。
+
+### 已添加
+- 新增「快速开始」章节：从克隆仓库、拉取子模块到跑通第一个驱动示例的最短闭环步骤。
+- 补回 `main` 分支中缺失的章节：获取子模块 (`git submodule init/update`)、工程结构目录导航、切换内核版本、`menuconfig` 菜单配置、全量编译 (`make zImage modules dtbs`)、产物路径说明。
+- FAQ 补充 `ncurses` 缺失、`(NEW)` 询问使用 `olddefconfig`、`make clean` 与 `make mrproper` 区别等条目。
+
 ## 2026-05-26
 
 ### 已添加
