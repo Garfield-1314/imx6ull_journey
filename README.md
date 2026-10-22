@@ -79,6 +79,7 @@ git submodule update --progress
 ## 2. 工程结构
 
 - [`linux-fslc/`](linux-fslc/): Linux 内核源码（Git 子模块，来自 NXP 维护的 `Freescale/linux-fslc`）。
+- [`dts/`](dts/): 自定义设备树源文件（主仓库维护，编译前复制进内核树，见 4.2 节）。
 - [`drivers/01_chrdev_misc/`](drivers/01_chrdev_misc/): 示例 1 —— 杂项字符设备驱动（无需修改设备树）。
 - [`drivers/02_gpio_led/`](drivers/02_gpio_led/): 示例 2 —— GPIO LED 驱动（基于设备树）。
 - [`CHANGELOG.md`](CHANGELOG.md): 项目更新日志。
@@ -133,14 +134,28 @@ make zImage modules dtbs -j$(nproc)
 - **方式 B (修改设备树)**: 参考 [drivers/02_gpio_led/](drivers/02_gpio_led/)，使用 `platform_driver` 框架。
 
 ### 4.2 自定义设备树 (DTS)
-**不要**直接修改官方 `.dts`，推荐创建独立文件：
-1. **新建文件**: 在 `arch/arm/boot/dts/nxp/imx/` 创建 `imx6ull-garfield.dts`。
-2. **内容继承**: `#include "imx6ull-14x14-evk.dts"` 并添加自己的节点。
-3. **Makefile 注册**: 修改同目录下的 `Makefile`，添加 `dtb-$(CONFIG_ARCH_MXC) += imx6ull-garfield.dtb`。
-4. **精确编译**:
+
+**源文件在主仓库 [`dts/`](dts/) 目录维护**，内核子模块 `linux-fslc/` 保持官方原样不作任何改动；编译前手动复制进内核树即可。
+
+1. **源文件**: [`dts/imx6ull-garfield.dts`](dts/imx6ull-garfield.dts)
+   - 用 `#include "imx6ull-14x14-evk.dts"` 继承官方设备树，只添加自己的节点，**不要**直接修改官方 `.dts`。
+   - **引脚 mux**: 若节点用到 GPIO，需在 `&iomuxc` 下定义对应 `pinctrl_*` 组并挂到节点的 `pinctrl-0`，否则 pad 仍是复位默认功能，驱动取不到 GPIO。
+2. **复制 + 编译**:
    ```bash
+   cp dts/imx6ull-garfield.dts linux-fslc/arch/arm/boot/dts/nxp/imx/
+   cd linux-fslc
    make nxp/imx/imx6ull-garfield.dtb
    ```
+3. **产物**: `linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull-garfield.dtb`
+
+> **为什么不用改内核 Makefile**: `.dtb` 的生成规则是无条件的模式规则 `$(obj)/%.dtb: $(obj)/%.dts`，只要同名 `.dts` 存在即可编译，与 `Makefile` 里的 `dtb-$(...)` 注册无关。
+> 唯一的区别是 `make dtbs` 全量编译不会带上它（`dtb-y` 中没有该条目），需要单独执行上面的单文件编译命令。
+>
+> 复制进去的 `.dts` 在子模块中属于 untracked 文件，会显示 `?? imx6ull-garfield.dts`。若不想看到，可执行一次：
+> ```bash
+> echo '/imx6ull-garfield.dts' >> "$(git -C linux-fslc rev-parse --git-path info/exclude)"
+> ```
+> 编译完成后直接 `rm linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull-garfield.dts` 也可以。
 
 ---
 
@@ -158,8 +173,9 @@ make zImage modules dtbs -j$(nproc)
 编译完成后，关键文件位于以下路径：
 
 - **内核镜像**: `linux-fslc/arch/arm/boot/zImage`
-- **设备树文件**: `linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull-*.dtb`
-  （自定义设备树为 `imx6ull-garfield.dtb`）
+- **设备树源码**: `dts/imx6ull-garfield.dts`（主仓库）
+- **设备树编译产物**: `linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull-*.dtb`
+  （自定义设备树为 `imx6ull-garfield.dtb`，需先按 4.2 节复制源文件再单独编译）
 - **驱动模块**: 位于各级子目录下的 `.ko` 文件，如 `drivers/01_chrdev_misc/drv_misc.ko`、`drivers/02_gpio_led/drv_led.ko`。
 
 ---

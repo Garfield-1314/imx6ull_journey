@@ -2,6 +2,23 @@
 
 所有对本项目的显著更改都将记录在此文件中。
 
+## 2026-10-22
+
+### 已添加
+- 新增 [`dts/`](dts/) 目录存放自定义设备树源文件，首个文件为 [dts/imx6ull-garfield.dts](dts/imx6ull-garfield.dts)。
+  - 继承官方 `imx6ull-14x14-evk.dts`，新增 `my_led` 节点（`compatible = "my-project,gpio-led"`）供 [drivers/02_gpio_led/](drivers/02_gpio_led/) 绑定。
+  - LED 使用 `GPIO1_IO18`（pad `UART1_CTS_B`），并在 `&iomuxc` 中补充 `pinctrl_my_led` 完成 mux，避开 EVK 已被触摸屏占用的 `GPIO1_IO01~04`。
+
+### 已变更
+- [README.md](README.md) 4.2 节重写自定义设备树流程：源文件改由主仓库维护，编译前手动 `cp` 进内核树，**不再修改内核子模块的 `Makefile`**。
+  - 依据：`.dtb` 的生成规则是无条件模式规则 `$(obj)/%.dtb: $(obj)/%.dts`，只要同名 `.dts` 存在即可编译，`dtb-$(...)` 注册仅影响 `make dtbs` 全量编译是否包含该条目。
+  - 由此内核子模块 `linux-fslc/` 保持与官方完全一致，无任何已跟踪文件被改动。
+- 修正 README 中自定义设备树的错误说法：原写作「在 `dtb-$(CONFIG_ARCH_MXC)` 中注册」，而 `nxp/imx/Makefile` 全文只使用 SoC 级符号（如 `CONFIG_SOC_IMX6UL`），`CONFIG_ARCH_MXC` 出现 0 次。
+- 更新 [README.md](README.md) 第 2 节工程结构与第 6 节产物路径，补充 `dts/` 目录说明及自定义设备树的单独编译步骤。
+
+### 已修复
+- 修复 README 中「自定义设备树需先创建文件、再注册 Makefile」的误导性描述 —— 报错 `No rule to make target 'xxx.dtb'` 的真实原因是同名 `.dts` 不存在，而非未在 `Makefile` 注册。
+
 ## 2026-10-21
 
 ### 已变更
