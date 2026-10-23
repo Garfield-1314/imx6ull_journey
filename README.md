@@ -1,5 +1,7 @@
 # imx6ull_journey
 
+![build](https://github.com/Garfield-1314/imx6ull_journey/actions/workflows/ci.yml/badge.svg?branch=main)
+
 i.MX6ULL 嵌入式 Linux 学习与开发笔记。本项目基于 NXP 官方维护的 `linux-fslc` 内核源码，旨在记录 i.MX6ULL 的内核编译、驱动开发及系统移植过程。
 
 ## 0. 快速开始
@@ -191,3 +193,25 @@ make zImage modules dtbs -j$(nproc)
 - **清理工程**:
     - `make clean`: 删除编译生成物，保留配置文件。
     - `make mrproper`: 彻底清理，恢复至源码初始状态。
+
+---
+
+## 8. 持续集成 (GitHub Actions)
+
+流水线配置见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，在 **push 到 `main`** 或 **提交 PR** 时自动运行（手动触发可用 Actions 页面的 `Run workflow`）。
+
+它会在 GitHub 提供的临时 Ubuntu 机器上自动完成：
+
+1. 浅克隆主仓库与 `linux-fslc` 子模块
+2. 安装交叉工具链与内核编译依赖
+3. `imx_v7_defconfig` + `modules_prepare` + `make modules`（生成 `Module.symvers`）
+4. `checkpatch.pl` 风格检查（当前不阻塞构建）
+5. 编译 `dts/imx6ull-garfield.dts`
+6. 编译 `drivers/*/` 下的全部外部驱动
+7. 上传 `.ko` 与 `.dtb` 作为构建产物（Artifacts）
+
+**查看结果**：仓库顶部 `Actions` 标签 → 选择 `build` → 点开对应运行。绿勾表示成功，红叉点进去可看到具体报错。
+
+**缓存策略**：以 `linux-fslc` 子模块的 commit SHA 作为 ccache 缓存 key。内核版本不变时，后续运行只重编驱动和设备树，耗时从首次的 20+ 分钟降到几分钟。升级内核后首次运行会重新全量编译，属正常现象。
+
+> 说明：CI 只验证「能编译」，无法替代开发板上的实际加载测试。

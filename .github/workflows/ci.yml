@@ -1,0 +1,96 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ARCH: arm
+  CROSS_COMPILE: arm-linux-gnueabihf-
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 3G
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+
+    steps:
+      - name: 检出代码（含内核子模块，浅克隆）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: 安装工具链
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            dwarves zstd gcc-arm-linux-gnueabihf ccache perl
+
+      - name: 记录子模块 SHA（缓存 key）
+        id: kver
+        run: echo "sha=$(git submodule status linux-fslc | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: 恢复 ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ steps.kver.outputs.sha }}-v1
+          restore-keys: |
+            ccache-${{ steps.kver.outputs.sha }}-
+
+      - name: 代码风格检查（初期不阻塞）
+        continue-on-error: true
+        run: |
+          for f in drivers/*/*.c; do
+            linux-fslc/scripts/checkpatch.pl --no-tree -f "$f"
+          done
+
+      - name: 配置内核
+        run: |
+          make -C linux-fslc imx_v7_defconfig
+          make -C linux-fslc modules_prepare CC="ccache arm-linux-gnueabihf-gcc"
+
+      - name: 编译内核（生成 Module.symvers）
+        run: make -C linux-fslc modules -j"$(nproc)" CC="ccache arm-linux-gnueabihf-gcc"
+
+      - name: 编译设备树
+        run: |
+          cp dts/imx6ull-garfield.dts linux-fslc/arch/arm/boot/dts/nxp/imx/
+          make -C linux-fslc nxp/imx/imx6ull-garfield.dtb
+
+      - name: 编译外部驱动
+        run: |
+          for d in drivers/*/; do
+            [ -f "$d/Makefile" ] || continue
+            make -C "$d" CC="ccache arm-linux-gnueabihf-gcc"
+          done
+
+      - name: 缓存统计
+        if: always()
+        run: ccache --show-stats
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: imx6ull-artifacts
+          path: |
+            drivers/**/*.ko
+            linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull-garfield.dtb
+          if-no-files-found: error
