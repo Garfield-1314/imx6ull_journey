@@ -56,10 +56,13 @@ jobs:
             ccache-${{ steps.kver.outputs.sha }}-
 
       - name: 代码风格检查（初期不阻塞）
-        continue-on-error: true
         run: |
+          # 逐个检查，避免第一个文件失败后跳过其余文件；问题仅提示，不阻塞构建
           for f in drivers/*/*.c; do
-            linux-fslc/scripts/checkpatch.pl --no-tree -f "$f"
+            case "$f" in
+              *.mod.c) continue ;;
+            esac
+            linux-fslc/scripts/checkpatch.pl --no-tree -f "$f" || true
           done
 
       - name: 配置内核
