@@ -77,8 +77,15 @@ jobs:
 
       - name: 编译设备树
         run: |
-          cp dts/imx6ull-garfield.dts linux-fslc/arch/arm/boot/dts/nxp/imx/
-          make -C linux-fslc nxp/imx/imx6ull-garfield.dtb
+          # 自动编译 dts/ 目录下的所有完整设备树，新增板子无需修改本文件
+          mkdir -p out/dtbs
+          for d in dts/*.dts; do
+            [ -f "$d" ] || continue
+            name=$(basename "$d" .dts)
+            cp "$d" linux-fslc/arch/arm/boot/dts/nxp/imx/
+            make -C linux-fslc "nxp/imx/$name.dtb"
+            cp "linux-fslc/arch/arm/boot/dts/nxp/imx/$name.dtb" out/dtbs/
+          done
 
       - name: 编译外部驱动
         run: |
@@ -97,5 +104,5 @@ jobs:
           name: imx6ull-artifacts
           path: |
             drivers/**/*.ko
-            linux-fslc/arch/arm/boot/dts/nxp/imx/imx6ull-garfield.dtb
+            out/dtbs/*.dtb
           if-no-files-found: error
