@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: 检出代码（含内核子模块，浅克隆）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 1
@@ -48,22 +48,24 @@ jobs:
         run: echo "sha=$(git submodule status linux-fslc | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: 恢复 ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .ccache
           key: ccache-${{ steps.kver.outputs.sha }}-v1
           restore-keys: |
             ccache-${{ steps.kver.outputs.sha }}-
 
-      - name: 代码风格检查（初期不阻塞）
+      - name: 代码风格检查
         run: |
-          # 逐个检查，避免第一个文件失败后跳过其余文件；问题仅提示，不阻塞构建
+          # 逐个检查所有文件，最后统一决定是否失败
+          status=0
           for f in drivers/*/*.c; do
             case "$f" in
               *.mod.c) continue ;;
             esac
-            linux-fslc/scripts/checkpatch.pl --no-tree -f "$f" || true
+            linux-fslc/scripts/checkpatch.pl --no-tree -f "$f" || status=1
           done
+          exit $status
 
       - name: 配置内核
         run: |
@@ -90,7 +92,7 @@ jobs:
         run: ccache --show-stats
 
       - name: 上传产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: imx6ull-artifacts
           path: |
