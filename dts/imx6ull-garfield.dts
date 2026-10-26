@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Garfield i.MX6ULL 核心板自定义设备树
+ *
+ * 继承官方 14x14 EVK 设备树，在此基础上添加自有外设节点。
+ * 不要直接修改内核里的官方 imx6ull-14x14-evk.dts。
+ *
+ * 用法见 README.md 4.2 节：先复制进内核树再编译。
+ */
+
+/dts-v1/;
+#include "imx6ull-14x14-evk.dts"
+
+/ {
+	my_led {
+		compatible = "my-project,gpio-led";
+		led-gpios = <&gpio1 18 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_my_led>;
+		status = "okay";
+	};
+};
+
+&iomuxc {
+	pinctrl_my_led: myledgrp {
+		fsl,pins = <
+			MX6UL_PAD_UART1_CTS_B__GPIO1_IO18	0x1b0b0
+		>;
+	};
+};

@@ -11,7 +11,7 @@
 .DS_Store
 Thumbs.db
 
-# Compilation artifacts (though handled inside linux-fslc usually)
+# Compilation artifacts
 *.o
 *.ko
 *.so
@@ -20,14 +20,19 @@ Thumbs.db
 *.elf
 *.dtb
 *.dtbo
+*.mod.c
+*.mod
+*.mod.o
+.*.cmd
 
-# Linux Kernel specific extra (if people build in root)
+# Linux Kernel specific extra
 .config
 .config.old
 vmlinux
 System.map
 Module.symvers
 modules.order
+.tmp_versions/
 
 # Python (if any)
 __pycache__/
