@@ -16,6 +16,7 @@
 #   3) git sparse-checkout disable            全部到齐后还原完整工作区
 #
 # 若服务端不支持 partial clone（filter），会自动改用压缩包（archive）下载。
+# 压缩包降级仅支持 GitHub / GitLab。
 #
 # 中断后重新执行同一条命令即可，会从当前进度继续。
 
@@ -48,6 +49,7 @@ usage() {
 说明:
   服务端不支持 partial clone 时（git 提示 "filtering not recognized by server"），
   脚本会自动改用压缩包下载；压缩包模式产出的目录不含 .git。
+  压缩包降级仅支持 GitHub / GitLab，其他托管会直接报错。
 EOF
 }
 
@@ -96,15 +98,25 @@ tarball_fetch() {
   owner="${rest%%/*}"
   repo="${rest##*/}"
 
-  [ -n "$ref" ] || ref=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
-  [ -n "$ref" ] || { echo "无法确定分支/提交，压缩包模式退出" >&2; return 1; }
+  local urls=()
+  case "$host" in
+    github.com)
+      [ -n "$ref" ] || ref=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
+      [ -n "$ref" ] || { echo "无法确定分支/提交，压缩包模式退出" >&2; return 1; }
+      urls+=("https://codeload.github.com/$owner/$repo/tar.gz/$ref")
+      ;;
+    *gitlab*)
+      [ -n "$ref" ] || ref=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
+      [ -n "$ref" ] || { echo "无法确定分支/提交，压缩包模式退出" >&2; return 1; }
+      urls+=("https://$host/$owner/$repo/-/archive/$ref/$repo-$ref.tar.gz")
+      ;;
+    *)
+      echo "错误: 压缩包降级仅支持 GitHub / GitLab，当前主机: $host" >&2
+      return 1
+      ;;
+  esac
 
   tmp=$(mktemp) || return 1
-  local urls=()
-  [ "$host" = "github.com" ] && urls+=("https://codeload.github.com/$owner/$repo/tar.gz/$ref")
-  case "$host" in *gitlab*) urls+=("https://$host/$owner/$repo/-/archive/$ref/$repo-$ref.tar.gz") ;; esac
-  urls+=("https://$host/$owner/$repo/archive/$ref.tar.gz")
-  urls+=("https://$host/$owner/$repo/archive/refs/heads/$ref.tar.gz")
 
   for u in "${urls[@]}"; do
     echo "    尝试压缩包: $u"
