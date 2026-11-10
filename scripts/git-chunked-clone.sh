@@ -89,6 +89,14 @@ url_parts() {
   echo "$u"
 }
 
+# 探测默认分支；拿不到分支名就退回 HEAD 的 SHA（codeload / gitlab 都接受 sha）
+resolve_ref() {
+  local r
+  r=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
+  [ -n "$r" ] || r=$(git ls-remote "$REPO" HEAD 2>/dev/null | awk 'NF{print $1; exit}')
+  printf '%s' "$r"
+}
+
 # 压缩包下载：依次尝试各平台的 archive 地址
 tarball_fetch() {
   local ref="$1" parts host rest owner repo u tmp ok=0
@@ -101,12 +109,12 @@ tarball_fetch() {
   local urls=()
   case "$host" in
     github.com)
-      [ -n "$ref" ] || ref=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
+      [ -n "$ref" ] || ref=$(resolve_ref)
       [ -n "$ref" ] || { echo "无法确定分支/提交，压缩包模式退出" >&2; return 1; }
       urls+=("https://codeload.github.com/$owner/$repo/tar.gz/$ref")
       ;;
     *gitlab*)
-      [ -n "$ref" ] || ref=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
+      [ -n "$ref" ] || ref=$(resolve_ref)
       [ -n "$ref" ] || { echo "无法确定分支/提交，压缩包模式退出" >&2; return 1; }
       urls+=("https://$host/$owner/$repo/-/archive/$ref/$repo-$ref.tar.gz")
       ;;
