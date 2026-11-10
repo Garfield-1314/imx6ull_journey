@@ -1,44 +1,43 @@
 #!/bin/bash
-# git-chunked-clone.sh —— 分块克隆大仓库（支持子模块递归）
+# git-chunked-clone.sh —— 分块克隆大仓库（支持子模块递归 / 服务端不支持 filter 时改用压缩包）
 #
 # 把一次几百 MB 的传输拆成几十次几 MB~几十 MB 的小请求，用于绕过
 # 代理/网络对单次传输的限制（例如 Cloudflare Workers 免费版每次调用
 # 只有 10ms CPU 预算，一次拉几百 MB 必定中途被杀）。
 #
 # 用法:
-#   git-chunked-clone.sh <repo-url> [target-dir] [branch]     普通克隆
-#   git-chunked-clone.sh --all                                拉取当前仓库的所有子模块（递归）
-#   git-chunked-clone.sh --submodule <path> [-r]              拉取指定子模块（-r 递归）
-#
-# 例:
-#   git-chunked-clone.sh https://github.com/Freescale/linux-fslc.git linux-fslc 6.18-1.0.x-imx
-#   git-chunked-clone.sh --all
+#   git-chunked-clone.sh <repo-url> [target-dir] [branch]
+#   git-chunked-clone.sh --all [-n]
+#   git-chunked-clone.sh --submodule <path> [-r] [-n]
 #
 # 原理:
-#   1) --depth 1 --filter=blob:none --sparse  只拉提交和目录树（通常几十 MB 以内）
+#   1) --depth 1 --filter=blob:none --sparse  只拉提交和目录树
 #   2) git sparse-checkout set <目录>         每次只为该目录发一个请求补 blob
-#   3) git sparse-checkout disable            所有 blob 到齐后还原完整工作区
+#   3) git sparse-checkout disable            全部到齐后还原完整工作区
+#
+# 若服务端不支持 partial clone（filter），会自动改用压缩包（archive）下载。
 #
 # 中断后重新执行同一条命令即可，会从当前进度继续。
 
 set -u
 
 SELF=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/$(basename "${BASH_SOURCE[0]:-$0}")
-: "${CHUNKED_TIMEOUT:=480}"      # 单个目录拉取超时（秒）
-: "${CHUNKED_MAX_DEPTH:=10}"     # 子模块递归深度上限
+: "${CHUNKED_TIMEOUT:=480}"
+: "${CHUNKED_MAX_DEPTH:=10}"
 DEPTH="${CHUNKED_DEPTH:-0}"
 
 usage() {
   cat <<'EOF'
 用法:
   git-chunked-clone.sh <repo-url> [target-dir] [branch]   普通克隆
-  git-chunked-clone.sh --all [-n]                          拉取当前仓库的所有子模块（含子模块的子模块）
+  git-chunked-clone.sh --all [-n]                          拉取当前仓库的所有子模块（含嵌套）
   git-chunked-clone.sh --submodule <path> [-r] [-n]        拉取指定子模块
 
 选项:
   --all, -a        处理当前仓库 .gitmodules 里的全部子模块，并自动递归
   --submodule,-s   指定单个子模块路径（自动读 URL / 锁定提交 / 所在分支）
   -r, --recursive  处理完当前仓库后，递归处理它自己的子模块
+  --no-filter      跳过 git 克隆，直接用压缩包（archive）下载
   -n, --dry-run    只打印解析结果，不实际下载
   -h, --help       显示本帮助
 
@@ -46,9 +45,9 @@ usage() {
   CHUNKED_TIMEOUT    单个目录拉取超时秒数，默认 480
   CHUNKED_MAX_DEPTH  递归深度上限，默认 10
 
-例:
-  git-chunked-clone.sh https://github.com/Freescale/linux-fslc.git linux-fslc 6.18-1.0.x-imx
-  git-chunked-clone.sh --all
+说明:
+  服务端不支持 partial clone 时（git 提示 "filtering not recognized by server"），
+  脚本会自动改用压缩包下载；压缩包模式产出的目录不含 .git。
 EOF
 }
 
@@ -74,9 +73,59 @@ resolve_url() {
   esac
 }
 
+# 把 repo URL 归一化成 host/owner/repo
+url_parts() {
+  local u="$1"
+  u="${u%/}"
+  u="${u%.git}"
+  u="${u#https://}"
+  u="${u#http://}"
+  u="${u#ssh://}"
+  u="${u#git://}"
+  u="${u#git@}"
+  u="${u/:/\/}"
+  echo "$u"
+}
+
+# 压缩包下载：依次尝试各平台的 archive 地址
+tarball_fetch() {
+  local ref="$1" parts host rest owner repo u tmp ok=0
+  parts=$(url_parts "$REPO")
+  host="${parts%%/*}"
+  rest="${parts#*/}"
+  owner="${rest%%/*}"
+  repo="${rest##*/}"
+
+  [ -n "$ref" ] || ref=$(git ls-remote --symref "$REPO" HEAD 2>/dev/null | awk '/^ref:/{print $2}' | sed 's#refs/heads/##')
+  [ -n "$ref" ] || { echo "无法确定分支/提交，压缩包模式退出" >&2; return 1; }
+
+  tmp=$(mktemp) || return 1
+  local urls=()
+  [ "$host" = "github.com" ] && urls+=("https://codeload.github.com/$owner/$repo/tar.gz/$ref")
+  case "$host" in *gitlab*) urls+=("https://$host/$owner/$repo/-/archive/$ref/$repo-$ref.tar.gz") ;; esac
+  urls+=("https://$host/$owner/$repo/archive/$ref.tar.gz")
+  urls+=("https://$host/$owner/$repo/archive/refs/heads/$ref.tar.gz")
+
+  for u in "${urls[@]}"; do
+    echo "    尝试压缩包: $u"
+    if curl -fL --retry 2 --retry-delay 2 --connect-timeout 20 -o "$tmp" "$u" 2>/dev/null; then
+      if gzip -t "$tmp" 2>/dev/null; then ok=1; break; fi
+      echo "    下载内容不是有效 gzip，换下一个地址"
+    fi
+  done
+
+  if [ $ok -ne 1 ]; then rm -f "$tmp"; return 1; fi
+
+  mkdir -p "$DIR" || { rm -f "$tmp"; return 1; }
+  if ! tar xzf "$tmp" -C "$DIR" --strip-components=1; then rm -f "$tmp"; return 1; fi
+  rm -f "$tmp"
+  return 0
+}
+
 MODE=clone
 DRY=0
 RECURSE=0
+NOFILTER=0
 REPO=""
 DIR=""
 BRANCH=""
@@ -87,6 +136,7 @@ while [ $# -gt 0 ]; do
     --all|-a)        MODE=all; RECURSE=1; shift ;;
     -r|--recursive)  RECURSE=1; shift ;;
     --submodule|-s)  MODE=submodule; SUBPATH="${2:-}"; shift 2 ;;
+    --no-filter)     NOFILTER=1; shift ;;
     --dry-run|-n)    DRY=1; shift ;;
     -h|--help)       usage; exit 0 ;;
     -*)              echo "未知参数: $1" >&2; usage; exit 1 ;;
@@ -110,7 +160,7 @@ if [ "$MODE" = all ]; then
         if [ "$DRY" = 1 ]; then
           "$SELF" --submodule "$val" --dry-run || RC=2
         else
-          CHUNKED_DEPTH=$((DEPTH + 1)) "$SELF" --submodule "$val" -r || RC=2
+          CHUNKED_DEPTH=$((DEPTH + 1)) "$SELF" --submodule "$val" -r $( [ "$NOFILTER" = 1 ] && echo --no-filter ) || RC=2
         fi
         ;;
     esac
@@ -187,10 +237,17 @@ else
   fi
 fi
 
+TARBALL=0
+
 # ---------- 第一步：骨架（已存在则续跑） ----------
 if [ -d "$DIR/.git" ]; then
   echo ">>> [1/4] 检测到已有仓库，从当前进度继续: $DIR"
   cd "$DIR" || exit 1
+elif [ "$NOFILTER" = 1 ]; then
+  echo ">>> [1/4] --no-filter：跳过 git 克隆，改用压缩包"
+  if [ -d "$DIR" ]; then rm -rf "$DIR"; fi
+  tarball_fetch "${SHA:-$BRANCH}" || die "压缩包下载失败"
+  TARBALL=1
 else
   # 已 checkout 的父仓库里，子模块路径会留下一个空目录，先清掉
   if [ -d "$DIR" ] && [ -z "$(ls -A "$DIR" 2>/dev/null)" ]; then
@@ -203,8 +260,43 @@ else
   [ -n "$BRANCH" ] && CLONE_ARGS+=(--branch "$BRANCH")
 
   echo ">>> [1/4] 拉取骨架（只有提交和目录树，通常几 MB）"
-  git clone "${CLONE_ARGS[@]}" "$REPO" "$DIR" || die "骨架克隆失败"
-  cd "$DIR" || exit 1
+  LOG=$(mktemp)
+  git clone "${CLONE_ARGS[@]}" "$REPO" "$DIR" >"$LOG" 2>&1
+  rc=$?
+  cat "$LOG"
+
+  filter_warn=0
+  grep -q "filtering not recognized" "$LOG" && filter_warn=1
+  rm -f "$LOG"
+
+  if [ "$filter_warn" = 1 ] && [ "$rc" -ne 0 ]; then
+    echo
+    echo "检测到服务端不支持 partial clone，自动改用压缩包下载"
+    rm -rf "$DIR"
+    tarball_fetch "${SHA:-$BRANCH}" || die "压缩包下载失败"
+    TARBALL=1
+  elif [ "$rc" -ne 0 ]; then
+    die "骨架克隆失败"
+  elif [ "$filter_warn" = 1 ]; then
+    echo
+    echo "注意: 服务端不支持 partial clone，filter 被忽略（本次仍克隆成功）"
+  fi
+  [ "$TARBALL" = 0 ] && { cd "$DIR" || exit 1; }
+fi
+
+# ---------- 压缩包模式：没有 .git，直接收尾 ----------
+if [ "$TARBALL" = 1 ]; then
+  echo
+  echo "完成（压缩包模式，目录不含 .git）:"
+  echo "  目录  : $(pwd)/$DIR"
+  echo "  文件数: $(find "$DIR" -type f | wc -l)"
+  echo "  体积  : $(du -sh "$DIR" | cut -f1)"
+  if [ "$MODE" = submodule ]; then
+    echo
+    echo "注意: 该目录不是 git 仓库，父仓库 git submodule status 会显示未初始化；" >&2
+    echo "      如需纳入子模块管理，请改用服务端支持 partial clone 的地址。" >&2
+  fi
+  exit 0
 fi
 
 git config gc.auto 0
@@ -228,8 +320,7 @@ while IFS= read -r p; do
 done < <(git sparse-checkout list 2>/dev/null || true)
 
 QUEUE=()
-# 注意：只取真正的目录（type=tree），跳过子模块（type=commit/gitlink），
-# 否则会把子模块路径当普通目录去 sparse-checkout，必然失败。
+# 只取真正的目录（type=tree）；子模块是 gitlink（type=commit），交给递归步骤处理
 while IFS= read -r d; do
   skip=0
   for p in ${OK[@]+"${OK[@]}"}; do
@@ -297,7 +388,6 @@ fi
 if [ "$MODE" = submodule ]; then
   echo
   echo "父仓库校验:"
-  # 把 .gitmodules 登记进 .git/config，之后 git submodule status/update 才会认为已初始化
   git -C "$ROOT" submodule init -- "$SUBPATH" >/dev/null 2>&1 || true
   git -C "$ROOT" submodule status -- "$SUBPATH" 2>/dev/null || true
   if [ "$(git rev-parse HEAD)" != "$SHA" ]; then
@@ -319,7 +409,7 @@ if [ "$RECURSE" = 1 ] && [ -f .gitmodules ]; then
         submodule.*.path)
           echo
           echo "======== 子模块: $val ========"
-          CHUNKED_DEPTH=$((DEPTH + 1)) "$SELF" --submodule "$val" -r || {
+          CHUNKED_DEPTH=$((DEPTH + 1)) "$SELF" --submodule "$val" -r $( [ "$NOFILTER" = 1 ] && echo --no-filter ) || {
             echo "子模块 $val 处理失败" >&2
             RC=2
           }
