@@ -286,9 +286,13 @@ fi
 
 # ---------- 压缩包模式：没有 .git，直接收尾 ----------
 if [ "$TARBALL" = 1 ]; then
+  case "$DIR" in
+    /*) shown_dir="$DIR" ;;
+    *)  shown_dir="$(pwd)/$DIR" ;;
+  esac
   echo
   echo "完成（压缩包模式，目录不含 .git）:"
-  echo "  目录  : $(pwd)/$DIR"
+  echo "  目录  : $shown_dir"
   echo "  文件数: $(find "$DIR" -type f | wc -l)"
   echo "  体积  : $(du -sh "$DIR" | cut -f1)"
   if [ "$MODE" = submodule ]; then

@@ -185,6 +185,26 @@ git submodule update --progress
 
 支持 `.gitmodules` 里的**相对地址**（`../foo.git`），会基于当前仓库的 `origin` 自动解析——嵌套子模块常用这种写法。
 
+#### 服务端不支持 partial clone 时（自动降级为压缩包）
+
+部分服务端（Gitee、部分自建 GitLab / Gitea）会忽略 `--filter`，git 只给一句
+`filtering not recognized by server` 然后拉全量——大仓库照样会撞限额。
+
+脚本检测到这种情况会**自动改用压缩包（archive）下载**；也可以强制走压缩包：
+
+```bash
+./scripts/git-chunked-clone.sh --no-filter <repo-url> [目录]
+```
+
+压缩包地址按平台依次尝试：
+
+- GitHub：`codeload.github.com/<owner>/<repo>/tar.gz/<ref>`
+- GitLab：`<host>/<owner>/<repo>/-/archive/<ref>/<repo>-<ref>.tar.gz`
+- 其他：`<host>/<owner>/<repo>/archive/<ref>.tar.gz`
+
+> ⚠️ 压缩包模式产出的目录**不含 `.git`**，只适合拿源码编译。用于子模块时，
+> 父仓库 `git submodule status` 会显示为未初始化。
+
 ---
 
 ## 2. 工程结构
